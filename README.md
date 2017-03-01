@@ -319,77 +319,51 @@ public boolean dispatchTouchEvent(MotionEvent ev) {
                 // the flag and do a normal dispatch to all children.
                 ev.setTargetAccessibilityFocus(false);
             }
-            if (preorderedList != null) preorderedList.clear();
-        }
-
-                if (newTouchTarget == null && mFirstTouchTarget != null) {
-                    // Did not find a child to receive the event.
-                    // Assign the pointer to the least recently added target.
-                    newTouchTarget = mFirstTouchTarget;
-                    while (newTouchTarget.next != null) {
-                        newTouchTarget = newTouchTarget.next;
-                    }
-                    newTouchTarget.pointerIdBits |= idBitsToAssign;
-                }
-            }
-        }
-
-        // Dispatch to touch targets.
-        if (mFirstTouchTarget == null) {
-            // No touch targets so treat this as an ordinary view.
-            handled = dispatchTransformedTouchEvent(ev, canceled, null,
-                    TouchTarget.ALL_POINTER_IDS);
-        } else {
-            // Dispatch to touch targets, excluding the new touch target if we already
-            // dispatched to it.  Cancel touch targets if necessary.
-            TouchTarget predecessor = null;
-            TouchTarget target = mFirstTouchTarget;
-            while (target != null) {
-                final TouchTarget next = target.next;
-                if (alreadyDispatchedToNewTouchTarget && target == newTouchTarget) {
-                    handled = true;
-                } else {
-                    final boolean cancelChild = resetCancelNextUpFlag(target.child)
-                            || intercepted;
-                    if (dispatchTransformedTouchEvent(ev, cancelChild,
-                            target.child, target.pointerIdBits)) {
-                        handled = true;
-                    }
-                    if (cancelChild) {
-                        if (predecessor == null) {
-                            mFirstTouchTarget = next;
-                        } else {
-                            predecessor.next = next;
-                        }
-                        target.recycle();
-                        target = next;
-                        continue;
-                    }
-                }
-                predecessor = target;
-                target = next;
-            }
-        }
-
-        // Update list of touch targets for pointer up or cancel, if needed.
-        if (canceled
-                || actionMasked == MotionEvent.ACTION_UP
-                || actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
-            resetTouchState();
-        } else if (split && actionMasked == MotionEvent.ACTION_POINTER_UP) {
-            final int actionIndex = ev.getActionIndex();
-            final int idBitsToRemove = 1 << ev.getPointerId(actionIndex);
-            removePointersFromTouchTargets(idBitsToRemove);
-        }
-    }
-
-    if (!handled && mInputEventConsistencyVerifier != null) {
-        mInputEventConsistencyVerifier.onUnhandledEvent(ev, 1);
-    }
-    return handled;
+            ......
 }
 ```
 从注释1中可以看到，如果是ACTION_DOWN的话会先调用onInterceptTouchEvent来判断是否拦截，注释2中，如果没有拦截，并且没有取消才会继续分发事件。<br>
 
+## Activity事件传递
+与上面一样，直接看dispatchTouchEvent方法。
+```Java
+/**
+ * Called to process touch screen events.  You can override this to
+ * intercept all touch screen events before they are dispatched to the
+ * window.  Be sure to call this implementation for touch screen events
+ * that should be handled normally.
+ *
+ * @param ev The touch screen event.
+ *
+ * @return boolean Return true if this event was consumed.
+ */
+public boolean dispatchTouchEvent(MotionEvent ev) {
+    if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+        onUserInteraction();
+    }
+    if (getWindow().superDispatchTouchEvent(ev)) {
+        return true;
+    }
+    return onTouchEvent(ev);
+}
+```
+首先分析Activity的attach方法可以发现getWindow()返回的就是PhoneWindow对象（PhoneWindow为抽象Window的实现子类），那就简单了，也就相当于PhoneWindow类的方法，而PhoneWindow类实现于Window抽象类，所以先看下Window类中抽象方法的定义，如下：
+```Java
+/**
+ * Used by custom windows, such as Dialog, to pass the touch screen event
+ * further down the view hierarchy. Application developers should
+ * not need to implement or call this.
+ *
+ */
+public abstract boolean superDispatchTouchEvent(MotionEvent event);
+```
+用户不需要重写实现的方法，实质也不能，在Activity中没有提供重写的机会，因为Window是以组合模式与Activity建立关系的。好了，看完了抽象的Window方法，那就去PhoneWindow里看下Window抽象方法的实现吧，如下：
+```Java
+@Override
+   public boolean superDispatchTouchEvent(MotionEvent event) {
+       return mDecor.superDispatchTouchEvent(event);
+   }
+```
+在PhoneWindow类里发现，mDecor是DecorView类的实例，同时DecorView是PhoneWindow的内部类。最惊人的发现是DecorView extends FrameLayout implements RootViewSurfaceTake,到这里问题又回到了ViewGroup的事件传递。
 
-http://blog.csdn.net/yanbober/article/details/45887547
+参考：http://blog.csdn.net/yanbober/article/details/45887547
